@@ -524,7 +524,6 @@ Glass::serialize(std::ostream& out_stream) {
     // no expected exception
     std::shared_lock lock(rw_mutex_);
     alg_hnsw->saveIndex(out_stream);
-    final_graph_.save(out_stream);
 
     if (use_conjugate_graph_) {
         conjugate_graph_->Serialize(out_stream);
@@ -618,10 +617,36 @@ Glass::deserialize(std::istream& in_stream) {
             return tl::unexpected(result.error());
         }
         alg_hnsw->loadIndex(in_stream, this->space.get());
-        final_graph_.load(in_stream);
 
         M_ = final_graph_.K;
         dim_ = alg_hnsw->getDim();
+
+        size_t num_elements = alg_hnsw->getCurrentElementCount();
+
+        final_graph_.init(num_elements, 2 * M_);
+        for (uint32_t i = 0; i < num_elements; ++i) {
+            int* edges = (int*)alg_hnsw->get_linklist0(i);
+            for (int j = 1; j <= edges[0]; ++j) {
+                final_graph_.at(i, j - 1) = edges[j];
+            }
+        }
+
+        auto initializer = std::make_unique<glass::GraphInitializer>(num_elements, M_);
+        initializer->ep = alg_hnsw->getEnterPoint();
+        for (int i = 0; i < num_elements; ++i) {
+            int level = alg_hnsw->getLevels(i);
+            initializer->levels[i] = level;
+            if (level > 0) {
+                initializer->lists[i].assign(level * M_, -1);
+                for (int j = 1; j <= level; ++j) {
+                    int* edges = (int*)alg_hnsw->get_linklist(i, j);
+                    for (int k = 1; k <= edges[0]; ++k) {
+                        initializer->at(j, i, k - 1) = edges[k];
+                    }
+                }
+            }
+        }
+        final_graph_.initializer = std::move(initializer);
 
         float* vector = new float[alg_hnsw->getCurrentElementCount() * dim_];
         std::cout << "max elements: " << alg_hnsw->getCurrentElementCount() << std::endl;
