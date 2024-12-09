@@ -618,7 +618,7 @@ Glass::deserialize(std::istream& in_stream) {
         }
         alg_hnsw->loadIndex(in_stream, this->space.get());
 
-        M_ = final_graph_.K;
+        M_ = alg_hnsw->getMaxDegree();
         dim_ = alg_hnsw->getDim();
 
         size_t num_elements = alg_hnsw->getCurrentElementCount();

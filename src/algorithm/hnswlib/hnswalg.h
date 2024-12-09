@@ -777,6 +777,11 @@ public:
     }
 
     size_t
+    getMaxDegree() const {
+        return M_;
+    }
+
+    size_t
     getDim() const {
         return dim_;
     }
