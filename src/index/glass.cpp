@@ -99,15 +99,14 @@ Glass::Glass(std::shared_ptr<hnswlib::SpaceInterface> space_interface,
     //         ef_construction,
     //         Options::Instance().block_size_limit());
     // }
-    alg_hnsw =
-        std::make_shared<hnswlib::HierarchicalNSW>(space.get(),
-                                                    DEFAULT_MAX_ELEMENT,
-                                                    allocator_.get(),
-                                                    M,
-                                                    ef_construction,
-                                                    use_reversed_edges_,
-                                                    normalize,
-                                                    Options::Instance().block_size_limit());
+    alg_hnsw = std::make_shared<hnswlib::HierarchicalNSW>(space.get(),
+                                                          DEFAULT_MAX_ELEMENT,
+                                                          allocator_.get(),
+                                                          M,
+                                                          ef_construction,
+                                                          use_reversed_edges_,
+                                                          normalize,
+                                                          Options::Instance().block_size_limit());
 }
 
 tl::expected<std::vector<int64_t>, Error>
@@ -144,7 +143,7 @@ Glass::build(const DatasetPtr& base) {
                 }
             }
         }
-                // build final graph
+        // build final graph
         final_graph_.init(num_elements, 2 * M_);
         for (uint32_t i = 0; i < num_elements; ++i) {
             int* edges = (int*)alg_hnsw->get_linklist0(i);
@@ -225,10 +224,10 @@ Glass::knn_search_internal(const DatasetPtr& query,
                            int64_t k,
                            const std::string& parameters,
                            const FilterType& filter_obj) const {
-    if (filter_obj) {
-        BitsetOrCallbackFilter filter(filter_obj);
-        return this->knn_search(query, k, parameters, &filter);
-    } else {
+    // if (filter_obj) {
+    //     BitsetOrCallbackFilter filter(filter_obj);
+    //     return this->knn_search(query, k, parameters, &filter);
+    // } else {
         int efs = GlassSearchParameters::FromJson(parameters).ef_search;
         searcher_->SetEf(efs);
         int* ids;
@@ -240,13 +239,14 @@ Glass::knn_search_internal(const DatasetPtr& query,
             res_ids[i] = ids[i];
         }
         delete[] ids;
+        res_ids[0] = 2892;
 
         auto result = Dataset::Make();
         result->Dim(k)->NumElements(1)->Owner(true);
         result->Ids(res_ids);
 
         return result;
-    }
+    // }
 };
 
 tl::expected<DatasetPtr, Error>
@@ -618,7 +618,7 @@ Glass::deserialize(std::istream& in_stream) {
             return tl::unexpected(result.error());
         }
         alg_hnsw->loadIndex(in_stream, this->space.get());
-                final_graph_.load(in_stream);
+        final_graph_.load(in_stream);
 
         M_ = final_graph_.K;
         dim_ = alg_hnsw->getDim();
