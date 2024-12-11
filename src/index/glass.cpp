@@ -18,6 +18,7 @@
 
 #include <fmt/format-inl.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <exception>
 #include <new>
@@ -228,24 +229,31 @@ Glass::knn_search_internal(const DatasetPtr& query,
     //     BitsetOrCallbackFilter filter(filter_obj);
     //     return this->knn_search(query, k, parameters, &filter);
     // } else {
-        int efs = GlassSearchParameters::FromJson(parameters).ef_search;
-        searcher_->SetEf(efs);
-        int* ids;
-        ids = new int[k];
-        searcher_->Search(query->GetFloat32Vectors(), k, ids);
-        int64_t* res_ids;
-        res_ids = new int64_t[k];
-        for (int i = 0; i < k; ++i) {
-            res_ids[i] = ids[i];
-        }
-        delete[] ids;
-        res_ids[0] = 2892;
+    int64_t efs = GlassSearchParameters::FromJson(parameters).ef_search;
+    searcher_->SetEf(std::max(efs, k));
+    int* ids;
+    ids = new int[k];
+    searcher_->Search(query->GetFloat32Vectors(), k, ids);
 
-        auto result = Dataset::Make();
-        result->Dim(k)->NumElements(1)->Owner(true);
-        result->Ids(res_ids);
+    int64_t* res_ids;
+    float* dists;
 
-        return result;
+    res_ids = static_cast<int64_t*>(allocator_->Allocate(k * sizeof(int64_t)));
+    dists = static_cast<float*>(allocator_->Allocate(k * sizeof(float)));
+
+    for (int i = 0; i < k; ++i) {
+        res_ids[i] = alg_hnsw->getExternalLabel(ids[i]);
+        dists[i] = alg_hnsw->getDistanceByInternalId(ids[i], query->GetFloat32Vectors());
+    }
+    delete[] ids;
+
+    auto result = Dataset::Make();
+    result->Dim(k)->NumElements(1)->Owner(true, allocator_->GetRawAllocator());
+
+    result->Ids(res_ids);
+    result->Distances(dists);
+
+    return result;
     // }
 };
 
@@ -648,10 +656,9 @@ Glass::deserialize(std::istream& in_stream) {
         }
         final_graph_.initializer = std::move(initializer);
 
-        float* vector = new float[alg_hnsw->getCurrentElementCount() * dim_];
-        std::cout << "max elements: " << alg_hnsw->getCurrentElementCount() << std::endl;
-        for (size_t i = 0; i < alg_hnsw->getCurrentElementCount() - 1; ++i) {
-            memcpy(vector + i * dim_, alg_hnsw->getDataByLabel(i), dim_ * sizeof(float));
+        float* vector = new float[num_elements * dim_];
+        for (size_t i = 0; i < num_elements - 1; ++i) {
+            memcpy(vector + i * dim_, alg_hnsw->getDataByInternalId(i), dim_ * sizeof(float));
         }
 
         searcher_ = glass::create_searcher(final_graph_, space->get_metric(), 2);

@@ -230,6 +230,13 @@ public:
         return dist;
     }
 
+    float
+    getDistanceByInternalId(tableint internal_id, const void* data_point) {
+        std::shared_ptr<float[]> normalize_query;
+        normalize_vector(data_point, normalize_query);
+        return fstdistfunc_(data_point, getDataByInternalId(internal_id), dist_func_param_);
+    }
+
     bool
     isValidLabel(labeltype label) override {
         std::unique_lock<std::mutex> lock_table(label_lookup_lock_);

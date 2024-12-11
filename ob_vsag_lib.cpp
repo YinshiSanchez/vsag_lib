@@ -501,12 +501,15 @@ fdeserialize(VectorIndexPtr& index_handler, std::istream& in_stream) {
         ret = static_cast<int>(error);
     }
     if (ret != 0) {
-    } else if (auto bs = hnsw_index->Deserialize(in_stream); bs.has_value()) {
-        hnsw->set_index(hnsw_index);
-        return 0;
     } else {
-        error = bs.error().type;
-        ret = static_cast<int>(error);
+        auto bs = hnsw_index->Deserialize(in_stream);
+        if (bs.has_value()) {
+            hnsw->set_index(hnsw_index);
+            return 0;
+        } else {
+            error = bs.error().type;
+            ret = static_cast<int>(error);
+        }
     }
     if (ret != 0) {
         vsag::logger::error("   fdeserialize error happend, ret={}", ret);
