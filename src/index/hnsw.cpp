@@ -203,7 +203,7 @@ HNSW::knn_search(const DatasetPtr& query,
                  int64_t k,
                  const std::string& parameters,
                  hnswlib::BaseFilterFunctor* filter_ptr) const {
-    SlowTaskTimer t("hnsw knnsearch", 20);
+    // SlowTaskTimer t("hnsw knnsearch", 20);
 
     try {
         // cannot perform search on empty index

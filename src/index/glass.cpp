@@ -47,6 +47,10 @@ const static uint32_t GENERATE_SEARCH_K = 50;
 const static uint32_t GENERATE_SEARCH_L = 400;
 const static float GENERATE_OMEGA = 0.51;
 
+constexpr int BEST_M = 64;
+constexpr int BEST_EFC = 200;
+constexpr int BEST_EFS = 100;
+
 Glass::Glass(std::shared_ptr<hnswlib::SpaceInterface> space_interface,
              int M,
              int ef_construction,
@@ -62,7 +66,7 @@ Glass::Glass(std::shared_ptr<hnswlib::SpaceInterface> space_interface,
     dim_ = *((size_t*)space->get_dist_func_param());
 
     M = std::min(std::max(M, MINIMAL_M), MAXIMAL_M);
-    M_ = M;
+    M_ = BEST_M;
 
     if (ef_construction <= 0) {
         throw std::runtime_error(MESSAGE_PARAMETER);
@@ -103,8 +107,8 @@ Glass::Glass(std::shared_ptr<hnswlib::SpaceInterface> space_interface,
     alg_hnsw = std::make_shared<hnswlib::HierarchicalNSW>(space.get(),
                                                           DEFAULT_MAX_ELEMENT,
                                                           allocator_.get(),
-                                                          M,
-                                                          ef_construction,
+                                                          BEST_M,
+                                                          BEST_EFC,
                                                           use_reversed_edges_,
                                                           normalize,
                                                           Options::Instance().block_size_limit());
@@ -172,7 +176,7 @@ Glass::build(const DatasetPtr& base) {
 
         searcher_ = glass::create_searcher(final_graph_, space->get_metric(), 2);
         searcher_->SetData(base->GetFloat32Vectors(), num_elements, dim_);
-        searcher_->SetEf(200);
+        searcher_->SetEf(BEST_EFS);
         searcher_->Optimize(1);
 
         return failed_ids;
@@ -229,21 +233,22 @@ Glass::knn_search_internal(const DatasetPtr& query,
     //     BitsetOrCallbackFilter filter(filter_obj);
     //     return this->knn_search(query, k, parameters, &filter);
     // } else {
-    int64_t efs = GlassSearchParameters::FromJson(parameters).ef_search;
+    // int64_t efs = GlassSearchParameters::FromJson(parameters).ef_search;
+    int64_t efs = BEST_EFS;
     searcher_->SetEf(std::max(efs, k));
     int* ids;
     ids = new int[k];
     searcher_->Search(query->GetFloat32Vectors(), k, ids);
 
-    int64_t* res_ids;
-    float* dists;
+    int64_t* res_ids = nullptr;
+    // float* dists;
 
     res_ids = static_cast<int64_t*>(allocator_->Allocate(k * sizeof(int64_t)));
-    dists = static_cast<float*>(allocator_->Allocate(k * sizeof(float)));
+    // dists = static_cast<float*>(allocator_->Allocate(k * sizeof(float)));
 
     for (int i = 0; i < k; ++i) {
         res_ids[i] = alg_hnsw->getExternalLabel(ids[i]);
-        dists[i] = alg_hnsw->getDistanceByInternalId(ids[i], query->GetFloat32Vectors());
+        // dists[i] = alg_hnsw->getDistanceByInternalId(ids[i], query->GetFloat32Vectors());
     }
     delete[] ids;
 
@@ -251,7 +256,7 @@ Glass::knn_search_internal(const DatasetPtr& query,
     result->Dim(k)->NumElements(1)->Owner(true, allocator_->GetRawAllocator());
 
     result->Ids(res_ids);
-    result->Distances(dists);
+    result->Distances(nullptr);
 
     return result;
     // }
@@ -663,7 +668,7 @@ Glass::deserialize(std::istream& in_stream) {
 
         searcher_ = glass::create_searcher(final_graph_, space->get_metric(), 2);
         searcher_->SetData(vector, alg_hnsw->getCurrentElementCount(), dim_);
-        searcher_->SetEf(200);
+        searcher_->SetEf(BEST_EFS);
         searcher_->Optimize(1);
 
         delete[] vector;
