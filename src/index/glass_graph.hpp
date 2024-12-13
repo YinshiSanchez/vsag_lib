@@ -102,7 +102,9 @@ struct Graph {
         std::ofstream writer(filename.c_str(), std::ios::binary);
         int nep = eps.size();
         writer.write((char*)&nep, 4);
-        writer.write((char*)eps.data(), nep * 4);
+        if (nep > 0) {
+            writer.write((char*)eps.data(), nep * 4);
+        }
         writer.write((char*)&N, 4);
         writer.write((char*)&K, 4);
         writer.write((char*)data, N * K * 4);
@@ -116,7 +118,9 @@ struct Graph {
     save(std::ostream& writer) const {
         int nep = eps.size();
         writer.write((char*)&nep, 4);
-        writer.write((char*)eps.data(), nep * 4);
+        if (nep > 0) {
+            writer.write((char*)eps.data(), nep * 4);
+        }
         writer.write((char*)&N, 4);
         writer.write((char*)&K, 4);
         writer.write((char*)data, N * K * 4);
@@ -132,8 +136,10 @@ struct Graph {
         std::ifstream reader(filename.c_str(), std::ios::binary);
         int nep;
         reader.read((char*)&nep, 4);
-        eps.resize(nep);
-        reader.read((char*)eps.data(), nep * 4);
+        if (nep > 0) {
+            eps.resize(nep);
+            reader.read((char*)eps.data(), nep * 4);
+        }
         reader.read((char*)&N, 4);
         reader.read((char*)&K, 4);
         data = (node_t*)alloc2M((size_t)N * K * 4);
@@ -151,8 +157,10 @@ struct Graph {
         free(data);
         int nep;
         reader.read((char*)&nep, 4);
-        eps.resize(nep);
-        reader.read((char*)eps.data(), nep * 4);
+        if (nep > 0) {
+            eps.resize(nep);
+            reader.read((char*)eps.data(), nep * 4);
+        }
         reader.read((char*)&N, 4);
         reader.read((char*)&K, 4);
         data = (node_t*)alloc2M((size_t)N * K * 4);

@@ -19,24 +19,24 @@
 #include "../logger.h"
 #include "../safe_allocator.h"
 #include "../utils.h"
+#include "glass_searcher.hpp"
 #include "vsag/binaryset.h"
 #include "vsag/errors.h"
 #include "vsag/index.h"
 #include "vsag/readerset.h"
-#include "glass_searcher.hpp"
 
 namespace vsag {
 
 class Glass : public Index {
 public:
     Glass(std::shared_ptr<hnswlib::SpaceInterface> space_interface,
-         int M,
-         int ef_construction,
-         bool use_static = false,
-         bool use_reversed_edges = false,
-         bool use_conjugate_graph = false,
-         bool normalize = false,
-         Allocator* allocator = nullptr);
+          int M,
+          int ef_construction,
+          bool use_static = false,
+          bool use_reversed_edges = false,
+          bool use_conjugate_graph = false,
+          bool normalize = false,
+          Allocator* allocator = nullptr);
 
     virtual ~Glass() {
         alg_hnsw = nullptr;
@@ -194,6 +194,9 @@ private:
                const std::string& parameters,
                hnswlib::BaseFilterFunctor* filter_ptr) const;
 
+    tl::expected<DatasetPtr, Error>
+    glass_knn_search(const DatasetPtr& query, int64_t k) const;
+
     template <typename FilterType>
     tl::expected<DatasetPtr, Error>
     range_search_internal(const DatasetPtr& query,
@@ -265,6 +268,7 @@ private:
 
     mutable std::shared_mutex rw_mutex_;
 
+    bool glass_init_ = false;
     uint32_t M_;
     glass::Graph<int> final_graph_;
     std::unique_ptr<glass::SearcherBase> searcher_;
