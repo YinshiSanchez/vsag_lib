@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <vector>
 
 #include "glass_memory.hpp"
@@ -15,6 +16,7 @@ struct GraphInitializer {
     std::vector<int> levels;
     std::vector<std::vector<int, align_alloc<int>>> lists;
     GraphInitializer() = default;
+    ~GraphInitializer() = default;
 
     explicit GraphInitializer(int n, int K = 0) : N(n), K(K), levels(n), lists(n) {
     }
@@ -75,8 +77,10 @@ struct GraphInitializer {
             int cur;
             reader.read((char*)&cur, 4);
             levels[i] = cur / K;
-            lists[i].assign(cur, -1);
-            reader.read((char*)lists[i].data(), cur * 4);
+            if (cur > 0) {
+                lists[i].assign(cur, -1);
+                reader.read((char*)lists[i].data(), cur * 4);
+            }
         }
     }
 
@@ -89,8 +93,10 @@ struct GraphInitializer {
             int cur;
             reader.read((char*)&cur, 4);
             levels[i] = cur / K;
-            lists[i].assign(cur, -1);
-            reader.read((char*)lists[i].data(), cur * 4);
+            if (cur > 0) {
+                lists[i].assign(cur, -1);
+                reader.read((char*)lists[i].data(), cur * 4);
+            }
         }
     }
 
@@ -102,7 +108,9 @@ struct GraphInitializer {
         for (int i = 0; i < N; ++i) {
             int cur = levels[i] * K;
             writer.write((char*)&cur, 4);
-            writer.write((char*)lists[i].data(), cur * 4);
+            if (cur > 0) {
+                writer.write((char*)lists[i].data(), cur * 4);
+            }
         }
     }
 
@@ -114,7 +122,9 @@ struct GraphInitializer {
         for (int i = 0; i < N; ++i) {
             int cur = levels[i] * K;
             writer.write((char*)&cur, 4);
-            writer.write((char*)lists[i].data(), cur * 4);
+            if (cur > 0) {
+                writer.write((char*)lists[i].data(), cur * 4);
+            }
         }
     }
 };

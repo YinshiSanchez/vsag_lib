@@ -5,6 +5,7 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <ostream>
 #include <random>
 #include <string>
 #include <thread>
@@ -12,8 +13,8 @@
 #include <vector>
 
 #include "common.h"
-#include "index/glass_graph.hpp"
 #include "glass_neighbor.hpp"
+#include "index/glass_graph.hpp"
 #include "quantization/glass_quant.hpp"
 
 namespace vsag {
@@ -83,6 +84,10 @@ struct SearcherBase {
     virtual void
     SetEf(int ef) = 0;
     virtual ~SearcherBase() = default;
+    virtual void
+    serialize(std::ostream& writer) const = 0;
+    virtual void
+    deserialize(std::istream& reader) = 0;
 };
 
 template <typename Quantizer>
@@ -106,9 +111,11 @@ struct Searcher : public SearcherBase {
     constexpr static int kTryK = 10;
     int sample_points_num;
     std::vector<float> optimize_queries;
-    const int graph_po;
+    int graph_po;
 
-    Searcher(const Graph<int>& graph) : graph(graph), graph_po(graph.K / 16) {
+    Searcher() = default;
+
+    Searcher(Graph<int>&& graph) : graph(std::move(graph)), graph_po(graph.K / 16) {
     }
 
     void
@@ -230,34 +237,98 @@ struct Searcher : public SearcherBase {
             }
         }
     }
+
+    void
+    serialize(std::ostream& writer) const override {
+        writer.write((char*)&d, sizeof(d));
+        writer.write((char*)&nb, sizeof(nb));
+        writer.write((char*)&ef, sizeof(ef));
+        writer.write((char*)&po, sizeof(po));
+        writer.write((char*)&pl, sizeof(pl));
+        writer.write((char*)&graph_po, sizeof(graph_po));
+
+        graph.save(writer);
+
+        quant.serialize(writer);
+    }
+
+    void
+    deserialize(std::istream& reader) override {
+        reader.read((char*)&d, sizeof(d));
+        reader.read((char*)&nb, sizeof(nb));
+        reader.read((char*)&ef, sizeof(ef));
+        reader.read((char*)&po, sizeof(po));
+        reader.read((char*)&pl, sizeof(pl));
+        reader.read((char*)&graph_po, sizeof(graph_po));
+
+        graph.load(reader);
+
+        quant.deserialize(reader);
+    }
 };
 
 inline std::unique_ptr<SearcherBase>
-create_searcher(const Graph<int>& graph, const std::string& metric, int level = 1) {
+create_searcher(Graph<int>&& graph, const std::string& metric, int level = 1) {
     auto m = metric_map[metric];
     if (level == 0) {
         if (m == Metric::L2) {
-            return std::make_unique<Searcher<glass::FP32Quantizer<Metric::L2>>>(graph);
+            return std::make_unique<Searcher<glass::FP32Quantizer<Metric::L2>>>(std::move(graph));
         } else if (m == Metric::IP) {
-            return std::make_unique<Searcher<FP32Quantizer<Metric::IP>>>(graph);
+            return std::make_unique<Searcher<FP32Quantizer<Metric::IP>>>(std::move(graph));
         } else {
             printf("Metric not suppported\n");
             return nullptr;
         }
     } else if (level == 1) {
         if (m == Metric::L2) {
-            return std::make_unique<Searcher<SQ8Quantizer<Metric::L2>>>(graph);
+            return std::make_unique<Searcher<SQ8Quantizer<Metric::L2>>>(std::move(graph));
         } else if (m == Metric::IP) {
-            return std::make_unique<Searcher<SQ8Quantizer<Metric::IP>>>(graph);
+            return std::make_unique<Searcher<SQ8Quantizer<Metric::IP>>>(std::move(graph));
         } else {
             printf("Metric not suppported\n");
             return nullptr;
         }
     } else if (level == 2) {
         if (m == Metric::L2) {
-            return std::make_unique<Searcher<SQ4Quantizer<Metric::L2>>>(graph);
+            return std::make_unique<Searcher<SQ4Quantizer<Metric::L2>>>(std::move(graph));
         } else if (m == Metric::IP) {
-            return std::make_unique<Searcher<SQ4Quantizer<Metric::IP>>>(graph);
+            return std::make_unique<Searcher<SQ4Quantizer<Metric::IP>>>(std::move(graph));
+        } else {
+            printf("Metric not suppported\n");
+            return nullptr;
+        }
+    } else {
+        printf("Quantizer type not supported\n");
+        return nullptr;
+    }
+}
+
+inline std::unique_ptr<SearcherBase>
+create_searcher(const std::string& metric, int level = 1) {
+    auto m = metric_map[metric];
+    if (level == 0) {
+        if (m == Metric::L2) {
+            return std::make_unique<Searcher<glass::FP32Quantizer<Metric::L2>>>();
+        } else if (m == Metric::IP) {
+            return std::make_unique<Searcher<FP32Quantizer<Metric::IP>>>();
+        } else {
+            printf("Metric not suppported\n");
+            return nullptr;
+        }
+    } else if (level == 1) {
+        if (m == Metric::L2) {
+            return std::make_unique<Searcher<SQ8Quantizer<Metric::L2>>>();
+        } else if (m == Metric::IP) {
+            return std::make_unique<Searcher<SQ8Quantizer<Metric::IP>>>();
+        } else {
+            printf("Metric not suppported\n");
+            return nullptr;
+        }
+    } else if (level == 2) {
+        if (m == Metric::L2) {
+            return std::make_unique<Searcher<SQ4Quantizer<Metric::L2>>>();
+        } else if (m == Metric::IP) {
+            return std::make_unique<Searcher<SQ4Quantizer<Metric::IP>>>();
         } else {
             printf("Metric not suppported\n");
             return nullptr;

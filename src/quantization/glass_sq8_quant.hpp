@@ -17,7 +17,7 @@ struct SQ8Quantizer {
     using data_type = uint8_t;
     constexpr static int kAlign = 16;
     int d, d_align;
-    int64_t code_size;
+    int64_t code_size, N;
     char* codes = nullptr;
     std::vector<float> mx, mi, dif;
 
@@ -38,6 +38,7 @@ struct SQ8Quantizer {
 
     void
     train(const float* data, int n) {
+        N = n;
         for (int64_t i = 0; i < n; ++i) {
             for (int64_t j = 0; j < d; ++j) {
                 mx[j] = std::max(mx[j], data[i * d + j]);
@@ -114,6 +115,26 @@ struct SQ8Quantizer {
     auto
     get_computer(const float* query) const {
         return Computer<0>(*this, query);
+    }
+    void
+    serialize(std::ostream& writer) const {
+        writer.write((char*)&d, sizeof(d));
+        writer.write((char*)&d_align, sizeof(d_align));
+        writer.write((char*)&code_size, sizeof(code_size));
+        writer.write((char*)&N, sizeof(N));
+        writer.write((char*)codes, code_size);
+
+    }
+
+    void
+    deserialize(std::istream& reader) {
+        reader.read((char*)&d, sizeof(d));
+        reader.read((char*)&d_align, sizeof(d_align));
+        reader.read((char*)&code_size, sizeof(code_size));
+        reader.read((char*)&N, sizeof(N));
+        codes = (char*)alloc2M(code_size * N);
+        reader.read((char*)codes, code_size * N);
+
     }
 };
 

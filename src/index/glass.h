@@ -270,7 +270,6 @@ private:
 
     bool glass_init_ = false;
     uint32_t M_;
-    glass::Graph<int> final_graph_;
     std::unique_ptr<glass::SearcherBase> searcher_;
 };
 

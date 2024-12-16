@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <sys/mman.h>
 
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 
@@ -23,8 +24,10 @@ struct align_alloc {
         return ptr;
     }
     void
-    deallocate(T*, int) {
-        free(ptr);
+    deallocate(T* p, int n) {
+        // free(ptr);
+        // ptr = nullptr;
+        free(p);
     }
     template <typename U>
     struct rebind {

@@ -6,6 +6,7 @@
 #include <istream>
 #include <memory>
 #include <ostream>
+#include <utility>
 #include <vector>
 
 #include "./glass_initializer.hpp"
@@ -44,6 +45,17 @@ struct Graph {
         }
         if (g.initializer) {
             initializer = std::make_unique<GraphInitializer>(*g.initializer);
+        }
+    }
+
+    Graph(Graph&& g) : N(g.N), K(g.K) {
+        this->eps = std::move(g.eps);
+
+        data = g.data;
+        g.data = nullptr;
+
+        if (g.initializer) {
+            initializer = std::move(g.initializer);
         }
     }
 

@@ -33,6 +33,7 @@
 #include "../utils.h"
 #include "./glass_zparameters.h"
 #include "hnsw.h"
+#include "index/glass_graph.hpp"
 #include "vsag/binaryset.h"
 #include "vsag/constants.h"
 #include "vsag/errors.h"
@@ -150,16 +151,19 @@ Glass::build(const DatasetPtr& base) {
             }
         }
         // build final graph
-        final_graph_.init(num_elements, 2 * M_);
+        glass::Graph<int> final_graph;
+        final_graph.init(num_elements, 2 * M_);
         for (uint32_t i = 0; i < num_elements; ++i) {
             int* edges = (int*)alg_hnsw->get_linklist0(i);
             for (int j = 1; j <= edges[0]; ++j) {
-                final_graph_.at(i, j - 1) = edges[j];
+                final_graph.at(i, j - 1) = edges[j];
             }
         }
 
-        auto initializer = std::make_unique<glass::GraphInitializer>(num_elements, M_);
+        std::unique_ptr<glass::GraphInitializer> initializer =
+            std::make_unique<glass::GraphInitializer>(num_elements, M_);
         initializer->ep = alg_hnsw->getEnterPoint();
+
         for (int i = 0; i < num_elements; ++i) {
             int level = alg_hnsw->getLevels(i);
             initializer->levels[i] = level;
@@ -173,12 +177,14 @@ Glass::build(const DatasetPtr& base) {
                 }
             }
         }
-        final_graph_.initializer = std::move(initializer);
+        final_graph.initializer = std::move(initializer);
 
-        searcher_ = glass::create_searcher(final_graph_, space->get_metric(), 2);
+        searcher_ = glass::create_searcher(std::move(final_graph), space->get_metric(), 2);
         searcher_->SetData(base->GetFloat32Vectors(), num_elements, dim_);
         searcher_->SetEf(BEST_EFS);
         searcher_->Optimize(1);
+
+        glass_init_ = true;
 
         return failed_ids;
     } catch (const std::invalid_argument& e) {
@@ -549,11 +555,12 @@ Glass::serialize(std::ostream& out_stream) {
     if (!glass_init_) {
         size_t num_elements = alg_hnsw->getCurrentElementCount();
 
-        final_graph_.init(num_elements, 2 * M_);
+        glass::Graph<int> final_graph;
+        final_graph.init(num_elements, 2 * M_);
         for (uint32_t i = 0; i < num_elements; ++i) {
             int* edges = (int*)alg_hnsw->get_linklist0(i);
             for (int j = 1; j <= edges[0]; ++j) {
-                final_graph_.at(i, j - 1) = edges[j];
+                final_graph.at(i, j - 1) = edges[j];
             }
         }
 
@@ -572,8 +579,21 @@ Glass::serialize(std::ostream& out_stream) {
                 }
             }
         }
-        final_graph_.initializer = std::move(initializer);
-        final_graph_.save(out_stream);
+        final_graph.initializer = std::move(initializer);
+
+        float* vector = new float[num_elements * dim_];
+        for (size_t i = 0; i < num_elements - 1; ++i) {
+            memcpy(vector + i * dim_, alg_hnsw->getDataByInternalId(i), dim_ * sizeof(float));
+        }
+
+        searcher_ = glass::create_searcher(std::move(final_graph), space->get_metric(), 2);
+        searcher_->SetData(vector, num_elements, dim_);
+        searcher_->SetEf(BEST_EFS);
+        searcher_->Optimize(1);
+        searcher_->serialize(out_stream);
+        delete[] vector;
+    } else {
+        searcher_->serialize(out_stream);
     }
 
     if (use_conjugate_graph_) {
@@ -671,46 +691,15 @@ Glass::deserialize(std::istream& in_stream) {
         M_ = alg_hnsw->getMaxDegree();
         dim_ = alg_hnsw->getDim();
 
-        final_graph_.load(in_stream);
-
         size_t num_elements = alg_hnsw->getCurrentElementCount();
 
-        // final_graph_.init(num_elements, 2 * M_);
-        // for (uint32_t i = 0; i < num_elements; ++i) {
-        //     int* edges = (int*)alg_hnsw->get_linklist0(i);
-        //     for (int j = 1; j <= edges[0]; ++j) {
-        //         final_graph_.at(i, j - 1) = edges[j];
-        //     }
-        // }
+        searcher_ = glass::create_searcher(space->get_metric(), 2);
 
-        // auto initializer = std::make_unique<glass::GraphInitializer>(num_elements, M_);
-        // initializer->ep = alg_hnsw->getEnterPoint();
-        // for (int i = 0; i < num_elements; ++i) {
-        //     int level = alg_hnsw->getLevels(i);
-        //     initializer->levels[i] = level;
-        //     if (level > 0) {
-        //         initializer->lists[i].assign(level * M_, -1);
-        //         for (int j = 1; j <= level; ++j) {
-        //             int* edges = (int*)alg_hnsw->get_linklist(i, j);
-        //             for (int k = 1; k <= edges[0]; ++k) {
-        //                 initializer->at(j, i, k - 1) = edges[k];
-        //             }
-        //         }
-        //     }
-        // }
-        // final_graph_.initializer = std::move(initializer);
+        searcher_->deserialize(in_stream);
 
-        float* vector = new float[num_elements * dim_];
-        for (size_t i = 0; i < num_elements - 1; ++i) {
-            memcpy(vector + i * dim_, alg_hnsw->getDataByInternalId(i), dim_ * sizeof(float));
-        }
-
-        searcher_ = glass::create_searcher(final_graph_, space->get_metric(), 2);
-        searcher_->SetData(vector, alg_hnsw->getCurrentElementCount(), dim_);
         searcher_->SetEf(BEST_EFS);
-        searcher_->Optimize(1);
+        glass_init_ = true;
 
-        delete[] vector;
         if (use_conjugate_graph_ and not conjugate_graph_->Deserialize(in_stream).has_value()) {
             throw std::runtime_error("error in deserialize conjugate graph");
         }

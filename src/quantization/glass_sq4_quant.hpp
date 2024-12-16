@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
+#include <iomanip>
+#include <istream>
 
 #include "common.h"
 #include "glass_fp32_quant.hpp"
@@ -17,7 +20,7 @@ struct SQ4Quantizer {
     constexpr static int kAlign = 128;
     float mx = -HUGE_VALF, mi = HUGE_VALF, dif;
     int d, d_align;
-    int64_t code_size;
+    int64_t code_size, N;
     data_type* codes = nullptr;
 
     Reorderer reorderer;
@@ -39,6 +42,7 @@ struct SQ4Quantizer {
             mi = std::min(mi, data[i]);
         }
         dif = mx - mi;
+        N = n;
         codes = (data_type*)alloc2M(n * code_size);
         for (int i = 0; i < n; ++i) {
             encode(data + i * d, get_data(i));
@@ -115,6 +119,39 @@ struct SQ4Quantizer {
     auto
     get_computer(const float* query) const {
         return Computer<0>(*this, query);
+    }
+
+    void
+    serialize(std::ostream& writer) const {
+        writer.write((char*)&mx, sizeof(mx));
+        writer.write((char*)&mi, sizeof(mi));
+        writer.write((char*)&dif, sizeof(dif));
+
+        writer.write((char*)&d, sizeof(d));
+        writer.write((char*)&d_align, sizeof(d_align));
+        writer.write((char*)&code_size, sizeof(code_size));
+        writer.write((char*)&N, sizeof(N));
+
+        writer.write((char*)codes, code_size * N);
+
+        reorderer.serialize(writer);
+    }
+
+    void
+    deserialize(std::istream& reader) {
+        reader.read((char*)&mx, sizeof(mx));
+        reader.read((char*)&mi, sizeof(mi));
+        reader.read((char*)&dif, sizeof(dif));
+
+        reader.read((char*)&d, sizeof(d));
+        reader.read((char*)&d_align, sizeof(d_align));
+        reader.read((char*)&code_size, sizeof(code_size));
+        reader.read((char*)&N, sizeof(N));
+
+        codes = (data_type*)alloc2M(code_size * N);
+        reader.read((char*)codes, code_size * N);
+
+        reorderer.deserialize(reader);
     }
 };
 

@@ -141,8 +141,7 @@ main() {
     vsag::init();
     uint32_t max_elements, dim;
 
-    auto data =
-        load_fvecs("/home/yinshi/dataset/sift/sift_base.fvecs", dim, max_elements);
+    auto data = load_fvecs("/data/sift/sift_base.fvecs", dim, max_elements);
     uint32_t vec_size = dim * sizeof(float);
 
     int64_t* ids = new int64_t[max_elements];
@@ -158,10 +157,10 @@ main() {
         ->Float32Vectors(data.data())
         ->Owner(false);
 
-    int max_degree = 24;  // Tightly connected with internal dimensionality of the data
+    int max_degree = 16;  // Tightly connected with internal dimensionality of the data
     // strongly affects the memory consumption
-    int ef_construction = 200;  // Controls index search speed/build speed tradeoff
-    int ef_search = 200;
+    int ef_construction = 500;  // Controls index search speed/build speed tradeoff
+    int ef_search = 400;
     float threshold = 8.0;
 
     nlohmann::json glass_parameters{{"max_degree", max_degree},
@@ -187,13 +186,14 @@ main() {
         exit(-1);
     }
     uint32_t query_num;
-    auto queries =
-        load_fvecs("/home/yinshi/dataset/sift/sift_query.fvecs", dim, query_num);
+    auto queries = load_fvecs("/data/sift/sift_query.fvecs", dim, query_num);
 
-    auto ground_truth = load_ivecs("/home/yinshi/dataset/sift/sift_groundtruth.ivecs");
+    auto ground_truth = load_ivecs("/data/sift/sift_groundtruth.ivecs");
 
+    std::cout << "ground truth size: " << ground_truth[0].size() << std::endl;
     float correct = 0;
     float recall = 0;
+    int64_t k = 10;
     {
         HighPrecisionTimer timer;
         for (int i = 0; i < query_num; i++) {
@@ -203,7 +203,6 @@ main() {
             nlohmann::json parameters{
                 {"glass", {{"ef_search", ef_search}}},
             };
-            int64_t k = 10;
             timer.start();
             if (auto result = glass->KnnSearch(query, k, parameters.dump()); result.has_value()) {
                 timer.stop();
@@ -227,8 +226,6 @@ main() {
     std::stringstream data_stream;
     glass->Serialize(data_stream);
 
-    glass.reset();
-
     if (auto index = vsag::Factory::CreateIndex("glass", index_parameters.dump());
         index.has_value()) {
         glass = index.value();
@@ -249,7 +246,6 @@ main() {
             nlohmann::json parameters{
                 {"glass", {{"ef_search", ef_search}}},
             };
-            int64_t k = 10;
             timer.start();
             if (auto result = glass->KnnSearch(query, k, parameters.dump()); result.has_value()) {
                 timer.stop();
@@ -270,5 +266,6 @@ main() {
                   << std::endl;
         std::cout << "QPS: " << query_num / timer.getTotalTimeSeconds() << std::endl;
     }
+    delete[] ids;
     return 0;
 }
