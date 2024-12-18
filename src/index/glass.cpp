@@ -33,6 +33,7 @@
 #include "../utils.h"
 #include "./glass_zparameters.h"
 #include "hnsw.h"
+#include "index/glass.h"
 #include "index/glass_graph.hpp"
 #include "vsag/binaryset.h"
 #include "vsag/constants.h"
@@ -109,7 +110,7 @@ Glass::Glass(std::shared_ptr<hnswlib::SpaceInterface> space_interface,
     alg_hnsw = std::make_shared<hnswlib::HierarchicalNSW>(space.get(),
                                                           DEFAULT_MAX_ELEMENT,
                                                           allocator_.get(),
-                                                          BEST_M,
+                                                          M_,
                                                           BEST_EFC,
                                                           use_reversed_edges_,
                                                           normalize,
@@ -130,7 +131,7 @@ Glass::build(const DatasetPtr& base) {
         CHECK_ARGUMENT(base_dim == dim_,
                        fmt::format("base.dim({}) must be equal to index.dim({})", base_dim, dim_));
 
-        int64_t num_elements = base->GetNumElements();
+        num_elements_ = base->GetNumElements();
 
         std::unique_lock lock(rw_mutex_);
         if (auto result = init_memory_space(); not result.has_value()) {
@@ -142,7 +143,7 @@ Glass::build(const DatasetPtr& base) {
         std::vector<int64_t> failed_ids;
         {
             SlowTaskTimer t("hnsw graph");
-            for (int64_t i = 0; i < num_elements; ++i) {
+            for (int64_t i = 0; i < num_elements_; ++i) {
                 // noexcept runtime
                 if (!alg_hnsw->addPoint((const void*)(vectors + i * dim_), ids[i])) {
                     logger::debug("duplicate point: {}", ids[i]);
@@ -150,10 +151,16 @@ Glass::build(const DatasetPtr& base) {
                 }
             }
         }
+
+        label_map_.reserve(num_elements_);
+        for (size_t i = 0; i < num_elements_; ++i) {
+            label_map_.emplace_back(alg_hnsw->getExternalLabel(i));
+        }
+
         // build final graph
         glass::Graph<int> final_graph;
-        final_graph.init(num_elements, 2 * M_);
-        for (uint32_t i = 0; i < num_elements; ++i) {
+        final_graph.init(num_elements_, 2 * M_);
+        for (uint32_t i = 0; i < num_elements_; ++i) {
             int* edges = (int*)alg_hnsw->get_linklist0(i);
             for (int j = 1; j <= edges[0]; ++j) {
                 final_graph.at(i, j - 1) = edges[j];
@@ -161,10 +168,10 @@ Glass::build(const DatasetPtr& base) {
         }
 
         std::unique_ptr<glass::GraphInitializer> initializer =
-            std::make_unique<glass::GraphInitializer>(num_elements, M_);
+            std::make_unique<glass::GraphInitializer>(num_elements_, M_);
         initializer->ep = alg_hnsw->getEnterPoint();
 
-        for (int i = 0; i < num_elements; ++i) {
+        for (int i = 0; i < num_elements_; ++i) {
             int level = alg_hnsw->getLevels(i);
             initializer->levels[i] = level;
             if (level > 0) {
@@ -180,11 +187,12 @@ Glass::build(const DatasetPtr& base) {
         final_graph.initializer = std::move(initializer);
 
         searcher_ = glass::create_searcher(std::move(final_graph), space->get_metric(), 2);
-        searcher_->SetData(base->GetFloat32Vectors(), num_elements, dim_);
+        searcher_->SetData(base->GetFloat32Vectors(), num_elements_, dim_);
         searcher_->SetEf(BEST_EFS);
         searcher_->Optimize(1);
 
         glass_init_ = true;
+        alg_hnsw->reset();
 
         return failed_ids;
     } catch (const std::invalid_argument& e) {
@@ -237,12 +245,7 @@ Glass::knn_search_internal(const DatasetPtr& query,
                            const std::string& parameters,
                            const FilterType& filter_obj) const {
     if (k > BEST_EFS) {
-        if (filter_obj) {
-            BitsetOrCallbackFilter filter(filter_obj);
-            return this->knn_search(query, k, parameters, &filter);
-        } else {
-            return this->knn_search(query, k, parameters, nullptr);
-        }
+        return glass_flat_knn_search(query, k);
     } else {
         return glass_knn_search(query, k);
     }
@@ -253,7 +256,7 @@ Glass::knn_search(const DatasetPtr& query,
                   int64_t k,
                   const std::string& parameters,
                   hnswlib::BaseFilterFunctor* filter_ptr) const {
-    SlowTaskTimer t("hnsw knnsearch", 20);
+    // SlowTaskTimer t("hnsw knnsearch", 20);
 
     try {
         // cannot perform search on empty index
@@ -359,13 +362,51 @@ Glass::glass_knn_search(const DatasetPtr& query, int64_t k) const {
     res_ids = static_cast<int64_t*>(allocator_->Allocate(k * sizeof(int64_t)));
     // dists = static_cast<float*>(allocator_->Allocate(k * sizeof(float)));
 
-    for (int i = 0; i < k; ++i) {
-        res_ids[i] = alg_hnsw->getExternalLabel(ids[i]);
-        // dists[i] = alg_hnsw->getDistanceByInternalId(ids[i], query->GetFloat32Vectors());
+    if (glass_init_) {
+        for (int i = 0; i < k; ++i) {
+            res_ids[i] = label_map_[ids[i]];
+        }
+    } else {
+        for (int i = 0; i < k; ++i) {
+            res_ids[i] = alg_hnsw->getExternalLabel(ids[i]);
+        }
     }
     delete[] ids;
 
     auto result = Dataset::Make();
+    result->Dim(k)->NumElements(1)->Owner(true, allocator_->GetRawAllocator());
+
+    result->Ids(res_ids);
+    result->Distances(nullptr);
+
+    return result;
+}
+
+tl::expected<DatasetPtr, Error>
+Glass::glass_flat_knn_search(const DatasetPtr& query, int64_t k) const {
+    int64_t efs = 100;
+    searcher_->SetEf(std::max(efs, k));
+    int* ids;
+    ids = new int[k];
+    searcher_->FlatSearch(query->GetFloat32Vectors(), k, ids);
+
+    int64_t* res_ids = nullptr;
+
+    res_ids = static_cast<int64_t*>(allocator_->Allocate(k * sizeof(int64_t)));
+    if (glass_init_) {
+        for (int i = 0; i < k; ++i) {
+            res_ids[i] = label_map_[ids[i]];
+        }
+    } else {
+        for (int i = 0; i < k; ++i) {
+            res_ids[i] = alg_hnsw->getExternalLabel(ids[i]);
+        }
+    }
+
+    delete[] ids;
+
+    auto result = Dataset::Make();
+
     result->Dim(k)->NumElements(1)->Owner(true, allocator_->GetRawAllocator());
 
     result->Ids(res_ids);
@@ -551,22 +592,31 @@ Glass::serialize(std::ostream& out_stream) {
 
     // no expected exception
     std::shared_lock lock(rw_mutex_);
-    alg_hnsw->saveIndex(out_stream);
+
+    // alg_hnsw->saveIndex(out_stream);
+
     if (!glass_init_) {
-        size_t num_elements = alg_hnsw->getCurrentElementCount();
+        num_elements_ = alg_hnsw->getCurrentElementCount();
+
+        label_map_.reserve(num_elements_);
+        for (size_t i = 0; i < num_elements_; ++i) {
+            label_map_.emplace_back(alg_hnsw->getExternalLabel(i));
+        }
+        out_stream.write((char*)&num_elements_, sizeof(num_elements_));
+        out_stream.write((char*)label_map_.data(), sizeof(hnswlib::labeltype) * num_elements_);
 
         glass::Graph<int> final_graph;
-        final_graph.init(num_elements, 2 * M_);
-        for (uint32_t i = 0; i < num_elements; ++i) {
+        final_graph.init(num_elements_, 2 * M_);
+        for (uint32_t i = 0; i < num_elements_; ++i) {
             int* edges = (int*)alg_hnsw->get_linklist0(i);
             for (int j = 1; j <= edges[0]; ++j) {
                 final_graph.at(i, j - 1) = edges[j];
             }
         }
 
-        auto initializer = std::make_unique<glass::GraphInitializer>(num_elements, M_);
+        auto initializer = std::make_unique<glass::GraphInitializer>(num_elements_, M_);
         initializer->ep = alg_hnsw->getEnterPoint();
-        for (int i = 0; i < num_elements; ++i) {
+        for (int i = 0; i < num_elements_; ++i) {
             int level = alg_hnsw->getLevels(i);
             initializer->levels[i] = level;
             if (level > 0) {
@@ -581,18 +631,20 @@ Glass::serialize(std::ostream& out_stream) {
         }
         final_graph.initializer = std::move(initializer);
 
-        float* vector = new float[num_elements * dim_];
-        for (size_t i = 0; i < num_elements - 1; ++i) {
+        float* vector = new float[num_elements_ * dim_];
+        for (size_t i = 0; i < num_elements_ - 1; ++i) {
             memcpy(vector + i * dim_, alg_hnsw->getDataByInternalId(i), dim_ * sizeof(float));
         }
 
         searcher_ = glass::create_searcher(std::move(final_graph), space->get_metric(), 2);
-        searcher_->SetData(vector, num_elements, dim_);
+        searcher_->SetData(vector, num_elements_, dim_);
         searcher_->SetEf(BEST_EFS);
         searcher_->Optimize(1);
         searcher_->serialize(out_stream);
         delete[] vector;
     } else {
+        out_stream.write((char*)&num_elements_, sizeof(num_elements_));
+        out_stream.write((char*)label_map_.data(), sizeof(hnswlib::labeltype) * num_elements_);
         searcher_->serialize(out_stream);
     }
 
@@ -687,11 +739,17 @@ Glass::deserialize(std::istream& in_stream) {
         if (auto result = init_memory_space(); not result.has_value()) {
             return tl::unexpected(result.error());
         }
-        alg_hnsw->loadIndex(in_stream, this->space.get());
-        M_ = alg_hnsw->getMaxDegree();
-        dim_ = alg_hnsw->getDim();
 
-        size_t num_elements = alg_hnsw->getCurrentElementCount();
+        // alg_hnsw->loadIndex(in_stream, this->space.get());
+
+        // M_ = alg_hnsw->getMaxDegree();
+        // dim_ = alg_hnsw->getDim();
+
+        // size_t num_elements = alg_hnsw->getCurrentElementCount();
+        in_stream.read((char*)&num_elements_, sizeof(num_elements_));
+
+        label_map_.resize(num_elements_);
+        in_stream.read((char*)label_map_.data(), num_elements_ * sizeof(hnswlib::labeltype));
 
         searcher_ = glass::create_searcher(space->get_metric(), 2);
 

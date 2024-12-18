@@ -121,8 +121,15 @@ struct SQ4Quantizer {
         return Computer<0>(*this, query);
     }
 
+    auto
+    get_flat_computer(const float* query) const {
+      return reorderer.get_computer(query);
+    }
+
     void
     serialize(std::ostream& writer) const {
+        auto start = std::chrono::high_resolution_clock::now();
+
         writer.write((char*)&mx, sizeof(mx));
         writer.write((char*)&mi, sizeof(mi));
         writer.write((char*)&dif, sizeof(dif));
@@ -134,11 +141,17 @@ struct SQ4Quantizer {
 
         writer.write((char*)codes, code_size * N);
 
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "glass sq4 serialize: " << duration.count() << " ms" << std::endl;
+
         reorderer.serialize(writer);
     }
 
     void
     deserialize(std::istream& reader) {
+        auto start = std::chrono::high_resolution_clock::now();
+
         reader.read((char*)&mx, sizeof(mx));
         reader.read((char*)&mi, sizeof(mi));
         reader.read((char*)&dif, sizeof(dif));
@@ -150,6 +163,10 @@ struct SQ4Quantizer {
 
         codes = (data_type*)alloc2M(code_size * N);
         reader.read((char*)codes, code_size * N);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "glass sq4 deserialize: " << duration.count() << " ms" << std::endl;
 
         reorderer.deserialize(reader);
     }

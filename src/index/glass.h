@@ -75,6 +75,13 @@ public:
         SAFE_CALL(return this->knn_search_internal(query, k, parameters, invalid));
     }
 
+    virtual tl::expected<DatasetPtr, Error>
+    FlatKnnSearch(const DatasetPtr& query,
+                  int64_t k,
+                  const std::string& parameters) const override {
+        SAFE_CALL(return this->knn_search(query, k, parameters, nullptr));
+    };
+
     tl::expected<DatasetPtr, Error>
     RangeSearch(const DatasetPtr& query,
                 float radius,
@@ -197,6 +204,9 @@ private:
     tl::expected<DatasetPtr, Error>
     glass_knn_search(const DatasetPtr& query, int64_t k) const;
 
+    tl::expected<DatasetPtr, Error>
+    glass_flat_knn_search(const DatasetPtr& query, int64_t k) const;
+
     template <typename FilterType>
     tl::expected<DatasetPtr, Error>
     range_search_internal(const DatasetPtr& query,
@@ -270,7 +280,9 @@ private:
 
     bool glass_init_ = false;
     uint32_t M_;
+    uint32_t num_elements_;
     std::unique_ptr<glass::SearcherBase> searcher_;
+    std::vector<hnswlib::labeltype> label_map_;
 };
 
 }  // namespace vsag

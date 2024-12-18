@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -86,6 +87,7 @@ struct GraphInitializer {
 
     void
     load(std::istream& reader) {
+        auto start = std::chrono::high_resolution_clock::now();
         reader.read((char*)&N, 4);
         reader.read((char*)&K, 4);
         reader.read((char*)&ep, 4);
@@ -98,6 +100,10 @@ struct GraphInitializer {
                 reader.read((char*)lists[i].data(), cur * 4);
             }
         }
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "glass initializer deserialize: " << duration.count() << " ms" << std::endl;
     }
 
     void
@@ -116,6 +122,7 @@ struct GraphInitializer {
 
     void
     save(std::ostream& writer) const {
+        auto start = std::chrono::high_resolution_clock::now();
         writer.write((char*)&N, 4);
         writer.write((char*)&K, 4);
         writer.write((char*)&ep, 4);
@@ -126,6 +133,9 @@ struct GraphInitializer {
                 writer.write((char*)lists[i].data(), cur * 4);
             }
         }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "glass initializer serialize: " << duration.count() << " ms" << std::endl;
     }
 };
 

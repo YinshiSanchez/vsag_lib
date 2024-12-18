@@ -116,6 +116,11 @@ struct SQ8Quantizer {
     get_computer(const float* query) const {
         return Computer<0>(*this, query);
     }
+
+    auto
+    get_flat_computer(const float* query) const {
+        return Computer<0>(*this, query);
+    }
     void
     serialize(std::ostream& writer) const {
         writer.write((char*)&d, sizeof(d));

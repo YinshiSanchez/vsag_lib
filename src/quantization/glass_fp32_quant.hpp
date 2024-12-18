@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <iomanip>
 #include <iostream>
 
@@ -84,18 +85,31 @@ struct FP32Quantizer {
         return Computer<0>(*this, query);
     }
 
+    auto
+    get_flat_computer(const float* query) const {
+        return Computer<0>(*this, query);
+    }
+
     void
     serialize(std::ostream& writer) const {
+        auto start = std::chrono::high_resolution_clock::now();
+
         writer.write((char*)&d, sizeof(d));
         writer.write((char*)&d_align, sizeof(d_align));
 
         writer.write((char*)&code_size, sizeof(code_size));
         writer.write((char*)&N, sizeof(N));
         writer.write(codes, code_size * N);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "glass fp32 serialize: " << duration.count() << " ms" << std::endl;
     }
 
     void
     deserialize(std::istream& reader) {
+        auto start = std::chrono::high_resolution_clock::now();
+
         reader.read((char*)&d, sizeof(d));
         reader.read((char*)&d_align, sizeof(d_align));
 
@@ -103,6 +117,10 @@ struct FP32Quantizer {
         reader.read((char*)&N, sizeof(N));
         codes = (char*)alloc2M(code_size * N);
         reader.read(codes, code_size * N);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "glass fp32 deserialize: " << duration.count() << " ms" << std::endl;
     }
 };
 

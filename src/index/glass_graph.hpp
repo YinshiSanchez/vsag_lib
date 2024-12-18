@@ -8,6 +8,7 @@
 #include <ostream>
 #include <utility>
 #include <vector>
+#include <chrono>
 
 #include "./glass_initializer.hpp"
 #include "glass_memory.hpp"
@@ -128,6 +129,8 @@ struct Graph {
 
     void
     save(std::ostream& writer) const {
+        auto start = std::chrono::high_resolution_clock::now();
+
         int nep = eps.size();
         writer.write((char*)&nep, 4);
         if (nep > 0) {
@@ -136,6 +139,11 @@ struct Graph {
         writer.write((char*)&N, 4);
         writer.write((char*)&K, 4);
         writer.write((char*)data, N * K * 4);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "glass graph serialize: " << duration.count() << " ms" << std::endl;
+
         if (initializer) {
             initializer->save(writer);
         }
@@ -168,6 +176,9 @@ struct Graph {
         static_assert(std::is_same_v<node_t, int32_t>);
         free(data);
         int nep;
+
+        auto start = std::chrono::high_resolution_clock::now();
+
         reader.read((char*)&nep, 4);
         if (nep > 0) {
             eps.resize(nep);
@@ -177,6 +188,11 @@ struct Graph {
         reader.read((char*)&K, 4);
         data = (node_t*)alloc2M((size_t)N * K * 4);
         reader.read((char*)data, N * K * 4);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "glass graph deserialize: " << duration.count() << " ms" << std::endl;
+
         if (reader.peek() != EOF) {
             initializer = std::make_unique<GraphInitializer>(N);
             initializer->load(reader);

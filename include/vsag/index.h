@@ -117,6 +117,11 @@ public:
               const std::string& parameters,
               const std::function<bool(int64_t)>& filter) const = 0;
 
+    virtual tl::expected<DatasetPtr, Error>
+    FlatKnnSearch(const DatasetPtr& query,
+              int64_t k,
+              const std::string& parameters) const {return {};};
+
     /**
       * Performing single range search on index
       *

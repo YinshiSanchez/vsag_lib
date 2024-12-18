@@ -88,6 +88,8 @@ struct SearcherBase {
     serialize(std::ostream& writer) const = 0;
     virtual void
     deserialize(std::istream& reader) = 0;
+    virtual void
+    FlatSearch(const float* q, int k, int* dst) const = 0;
 };
 
 template <typename Quantizer>
@@ -204,6 +206,15 @@ struct Searcher : public SearcherBase {
         auto computer = quant.get_computer(q);
         searcher::LinearPool<typename Quantizer::template Computer<0>::dist_type> pool(
             nb, std::max(k, ef), k);
+        graph.initialize_search(pool, computer);
+        SearchImpl(pool, computer);
+        quant.reorder(pool, q, dst, k);
+    }
+
+    void
+    FlatSearch(const float* q, int k, int* dst) const override {
+        auto computer = quant.get_flat_computer(q);
+        searcher::LinearPool<float> pool(nb, std::max(k, ef), k);
         graph.initialize_search(pool, computer);
         SearchImpl(pool, computer);
         quant.reorder(pool, q, dst, k);
