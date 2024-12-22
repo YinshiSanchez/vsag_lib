@@ -50,9 +50,9 @@ const static uint32_t GENERATE_SEARCH_K = 50;
 const static uint32_t GENERATE_SEARCH_L = 400;
 const static float GENERATE_OMEGA = 0.51;
 
-constexpr int BEST_M = 64;
-constexpr int BEST_EFC = 200;
-constexpr int BEST_EFS = 100;
+constexpr int BEST_M = 48;
+constexpr int BEST_EFC = 400;
+constexpr int BEST_EFS = 85;
 
 Glass::Glass(std::shared_ptr<hnswlib::SpaceInterface> space_interface,
              int M,
